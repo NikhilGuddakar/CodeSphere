@@ -1,0 +1,24 @@
+# ===== Global =====
+.DS_Store
+*.log
+.env
+
+# ===== Backend =====
+backend/target/
+backend/.idea/
+backend/.vscode/
+backend/*.log
+
+# Backend runtime workspace
+backend/codesphere_workspace/
+
+# ===== Frontend =====
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.idea/
+frontend/.vscode/
+
+# ===== OS =====
+Thumbs.db
+
