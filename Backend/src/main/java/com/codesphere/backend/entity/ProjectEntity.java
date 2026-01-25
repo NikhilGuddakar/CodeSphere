@@ -20,9 +20,11 @@ public class ProjectEntity {
     public ProjectEntity() {
     }
     
-    @ManyToOne
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private UserEntity user;
+
 
     public UserEntity getUser() {
         return user;
@@ -31,6 +33,7 @@ public class ProjectEntity {
     public void setUser(UserEntity user) {
         this.user = user;
     }
+   
 
 
     // 🔹 GETTERS & SETTERS

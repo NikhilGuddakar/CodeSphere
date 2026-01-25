@@ -5,14 +5,17 @@ import com.codesphere.backend.dto.ExecuteRequest;
 import com.codesphere.backend.dto.ExecutionResult;
 import com.codesphere.backend.entity.ExecutionEntity;
 import com.codesphere.backend.entity.ProjectEntity;
+import com.codesphere.backend.entity.UserEntity;
 import com.codesphere.backend.repository.ExecutionRepository;
 import com.codesphere.backend.repository.ProjectRepository;
+import com.codesphere.backend.repository.UserRepository;
+
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
@@ -23,11 +26,14 @@ public class ExecutionController {
     private static final String BASE_DIR = "codesphere_workspace";
 
     private final ProjectRepository projectRepository;
+    private final UserRepository userRepository;
     private final ExecutionRepository executionRepository;
 
     public ExecutionController(ProjectRepository projectRepository,
+                               UserRepository userRepository,
                                ExecutionRepository executionRepository) {
         this.projectRepository = projectRepository;
+        this.userRepository = userRepository;
         this.executionRepository = executionRepository;
     }
 
@@ -36,31 +42,37 @@ public class ExecutionController {
             @PathVariable String projectName,
             @RequestBody ExecuteRequest request) {
 
-        try {
-            // 1️⃣ Fetch project
-            ProjectEntity project = projectRepository.findByName(projectName)
-                    .orElseThrow(() -> new RuntimeException("Project not found"));
+        // 1️⃣ Get logged-in user
+        String username = SecurityContextHolder
+                .getContext()
+                .getAuthentication()
+                .getName();
 
-            // 2️⃣ Build paths
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // 2️⃣ Validate project ownership
+        ProjectEntity project = projectRepository
+                .findByNameAndUser(projectName, user)
+                .orElseThrow(() -> new RuntimeException("Project not found"));
+
+        try {
             Path projectPath = Path.of(BASE_DIR, projectName);
             Path filePath = projectPath.resolve(request.getFilename());
 
-            if (!Files.exists(filePath)) {
-                throw new RuntimeException("File not found");
-            }
-
-            // 3️⃣ Detect language
             String extension = getExtension(request.getFilename());
-
-            // 4️⃣ Execute
             ExecutionResult result;
+
             switch (extension) {
-                case "java" -> result = executeJava(projectPath, filePath, request.getInput());
-                case "py" -> result = executePython(filePath, request.getInput());
-                default -> throw new RuntimeException("Unsupported file type");
+                case "java" ->
+                        result = executeJava(projectPath, filePath, request.getInput());
+                case "py" ->
+                        result = executePython(filePath, request.getInput());
+                default ->
+                        throw new RuntimeException("Unsupported file type");
             }
 
-            // 5️⃣ Persist execution history
+            // 3️⃣ Store execution result in DB
             ExecutionEntity execution = new ExecutionEntity();
             execution.setProject(project);
             execution.setFilename(request.getFilename());
@@ -70,12 +82,11 @@ public class ExecutionController {
 
             executionRepository.save(execution);
 
-            // 6️⃣ API response
             return ResponseEntity.ok(
                     new ApiResponse<>(
                             true,
                             "Execution completed",
-                            result.getStatus().equals("SUCCESS")
+                            "SUCCESS".equals(result.getStatus())
                                     ? result.getOutput()
                                     : result.getError()
                     )
@@ -83,11 +94,11 @@ public class ExecutionController {
 
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
-                    .body(new ApiResponse<>(false, e.getMessage(), null));
+                    .body(new ApiResponse<>(false, "Execution failed", null));
         }
     }
 
-    // ---------- helpers ----------
+    // ---------------- helpers ----------------
 
     private String getExtension(String filename) {
         int index = filename.lastIndexOf('.');
@@ -98,7 +109,6 @@ public class ExecutionController {
                                         Path filePath,
                                         String input) throws Exception {
 
-        // Compile
         Process compile = new ProcessBuilder(
                 "javac", filePath.getFileName().toString())
                 .directory(projectPath.toFile())
@@ -112,7 +122,6 @@ public class ExecutionController {
             return new ExecutionResult(null, compileOutput, "ERROR");
         }
 
-        // Run
         String className = filePath.getFileName().toString().replace(".java", "");
         Process run = new ProcessBuilder("java", className)
                 .directory(projectPath.toFile())
