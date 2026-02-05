@@ -83,6 +83,12 @@ export default function App() {
   const [statusType, setStatusType] = useState("success");
   const [saveMessage, setSaveMessage] = useState("");
   const [saveType, setSaveType] = useState("");
+  const [confirmState, setConfirmState] = useState({
+    open: false,
+    message: "",
+    confirmLabel: "Delete",
+    onConfirm: null
+  });
 
   const projectInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -91,6 +97,23 @@ export default function App() {
   const viewRef = useRef(null);
   const fileContentsRef = useRef({});
   const lastSavedRef = useRef({});
+
+  const getEditorText = useCallback(() => {
+    if (viewRef.current) {
+      return viewRef.current.state.doc.toString();
+    }
+    return editorContent;
+  }, [editorContent]);
+
+  const setEditorText = useCallback(
+    (nextContent) => {
+      setEditorContent(nextContent);
+      if (currentFile) {
+        setFileContents((prev) => ({ ...prev, [currentFile]: nextContent }));
+      }
+    },
+    [currentFile]
+  );
 
   const languageExtensions = useMemo(() => {
     if (!currentFile) return [];
@@ -174,8 +197,24 @@ export default function App() {
   useEffect(() => {
     if (showSearchPanel) {
       searchInputRef.current?.focus();
+      if (viewRef.current) {
+        const selection = viewRef.current.state.selection.main;
+        if (selection.from !== selection.to) {
+          const selectedText = viewRef.current.state.doc.sliceString(
+            selection.from,
+            selection.to
+          );
+          if (selectedText) {
+            setSearchQuery(selectedText);
+          }
+        }
+      }
     }
   }, [showSearchPanel]);
+
+  useEffect(() => {
+    setSearchIndex(-1);
+  }, [searchQuery, currentFile]);
 
   useEffect(() => {
     if (view === "editor") {
@@ -342,22 +381,31 @@ export default function App() {
     await loadFiles(projectName);
   };
 
-  const handleDeleteProject = async () => {
-    if (!currentProject) return;
-    const ok = window.confirm(`Delete project ${currentProject}? This removes all files.`);
-    if (!ok) return;
+  const openConfirm = (message, onConfirm, confirmLabel = "Delete") => {
+    setConfirmState({
+      open: true,
+      message,
+      confirmLabel,
+      onConfirm
+    });
+  };
+
+  const deleteProjectByName = async (projectName) => {
+    if (!projectName) return;
     setIsLoading(true);
     try {
-      const response = await api.deleteProject(currentProject);
+      const response = await api.deleteProject(projectName);
       if (!response.success) throw new Error(response.message || "Failed to delete project");
-      setCurrentProject("");
-      setCurrentFile("");
-      setFiles([]);
-      setEditorContent("");
-      setOpenFiles([]);
-      setFileContents({});
-      setLastSaved({});
-      setOutput("");
+      if (projectName === currentProject) {
+        setCurrentProject("");
+        setCurrentFile("");
+        setFiles([]);
+        setEditorContent("");
+        setOpenFiles([]);
+        setFileContents({});
+        setLastSaved({});
+        setOutput("");
+      }
       setStatusMessage(response.message || "Project deleted");
       setStatusType("success");
       await loadProjects();
@@ -368,6 +416,24 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!currentProject) return;
+    openConfirm(
+      `Delete project ${currentProject}? This removes all files.`,
+      () => deleteProjectByName(currentProject),
+      "Delete"
+    );
+  };
+
+  const handleDeleteProjectByName = async (projectName) => {
+    if (!projectName) return;
+    openConfirm(
+      `Delete project ${projectName}? This removes all files.`,
+      () => deleteProjectByName(projectName),
+      "Delete"
+    );
   };
 
   const handleCreateFile = async () => {
@@ -492,32 +558,31 @@ export default function App() {
     }
   };
 
-  const handleDeleteFile = async () => {
-    if (!currentProject || !currentFile) {
-      setStatusMessage("Select a file first");
+  const deleteFileByName = async (filename) => {
+    if (!currentProject || !filename) {
+      setStatusMessage("Select a project first");
       setStatusType("error");
       return;
     }
-    const ok = window.confirm(`Delete ${currentFile}?`);
-    if (!ok) return;
     setIsLoading(true);
     try {
-      const response = await api.deleteFile(currentProject, currentFile);
+      const response = await api.deleteFile(currentProject, filename);
       if (!response.success) throw new Error(response.message || "Failed to delete file");
-      const deleted = currentFile;
-      setCurrentFile("");
-      setEditorContent("");
-      setOpenFiles((prev) => prev.filter((file) => file !== deleted));
+      setOpenFiles((prev) => prev.filter((file) => file !== filename));
       setFileContents((prev) => {
         const next = { ...prev };
-        delete next[deleted];
+        delete next[filename];
         return next;
       });
       setLastSaved((prev) => {
         const next = { ...prev };
-        delete next[deleted];
+        delete next[filename];
         return next;
       });
+      if (filename === currentFile) {
+        setCurrentFile("");
+        setEditorContent("");
+      }
       setStatusMessage("File deleted");
       setStatusType("success");
       await loadFiles(currentProject);
@@ -529,10 +594,28 @@ export default function App() {
     }
   };
 
+  const handleDeleteFile = async () => {
+    if (!currentProject || !currentFile) {
+      setStatusMessage("Select a file first");
+      setStatusType("error");
+      return;
+    }
+    openConfirm(`Delete ${currentFile}?`, () => deleteFileByName(currentFile), "Delete");
+  };
+
+  const handleDeleteFileByName = async (filename) => {
+    if (!currentProject || !filename) {
+      setStatusMessage("Select a project first");
+      setStatusType("error");
+      return;
+    }
+    openConfirm(`Delete ${filename}?`, () => deleteFileByName(filename), "Delete");
+  };
+
   const handleFindNext = () => {
     if (!currentFile || !searchQuery) return;
-    const content = fileContentsRef.current[currentFile] ?? "";
-    let start = 0;
+    const content = getEditorText();
+    let start = searchIndex >= 0 ? searchIndex + 1 : 0;
     if (viewRef.current) {
       start = viewRef.current.state.selection.main.to;
     }
@@ -555,10 +638,10 @@ export default function App() {
     }
   };
 
-  const replaceSelection = (from, to, content) => {
+  const replaceSelection = (from, to) => {
+    const content = getEditorText();
     const nextContent = content.slice(0, from) + replaceQuery + content.slice(to);
-    setEditorContent(nextContent);
-    setFileContents((prev) => ({ ...prev, [currentFile]: nextContent }));
+    setEditorText(nextContent);
     if (viewRef.current) {
       const cursor = from + replaceQuery.length;
       viewRef.current.dispatch({
@@ -571,25 +654,29 @@ export default function App() {
 
   const handleReplaceNext = () => {
     if (!currentFile || !searchQuery) return;
-    const content = fileContentsRef.current[currentFile] ?? "";
     if (viewRef.current) {
       const selection = viewRef.current.state.selection.main;
       if (selection.from !== selection.to) {
-        const selected = content.slice(selection.from, selection.to);
+        const selected = viewRef.current.state.doc.sliceString(
+          selection.from,
+          selection.to
+        );
         if (selected === searchQuery) {
-          replaceSelection(selection.from, selection.to, content);
+          replaceSelection(selection.from, selection.to);
           return;
         }
       }
     }
     handleFindNext();
-    const updatedContent = fileContentsRef.current[currentFile] ?? "";
     if (viewRef.current) {
       const selection = viewRef.current.state.selection.main;
       if (selection.from !== selection.to) {
-        const selected = updatedContent.slice(selection.from, selection.to);
+        const selected = viewRef.current.state.doc.sliceString(
+          selection.from,
+          selection.to
+        );
         if (selected === searchQuery) {
-          replaceSelection(selection.from, selection.to, updatedContent);
+          replaceSelection(selection.from, selection.to);
         }
       }
     }
@@ -597,10 +684,14 @@ export default function App() {
 
   const handleReplaceAll = () => {
     if (!currentFile || !searchQuery) return;
-    const content = fileContentsRef.current[currentFile] ?? "";
+    const content = getEditorText();
+    if (!content.includes(searchQuery)) {
+      setStatusMessage("No matches found");
+      setStatusType("error");
+      return;
+    }
     const nextContent = content.split(searchQuery).join(replaceQuery);
-    setEditorContent(nextContent);
-    setFileContents((prev) => ({ ...prev, [currentFile]: nextContent }));
+    setEditorText(nextContent);
     setStatusMessage("Replaced all matches");
     setStatusType("success");
   };
@@ -727,7 +818,24 @@ export default function App() {
           style={{ paddingLeft: `${24 + depth * 12}px` }}
           onClick={() => handleSelectFile(child.path)}
         >
-          {child.name}
+          <span className="tree-name">{child.name}</span>
+          <button
+            className="row-action"
+            title="Delete file"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDeleteFileByName(child.path);
+            }}
+          >
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path
+                  d="M9 3h6l1 2h4v2h-1l-1 12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7H4V5h4l1-2zm-2 4 1 11h8l1-11H7zm3 2h2v7h-2V9zm4 0h2v7h-2V9z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
+          </button>
         </div>
       );
     });
@@ -854,8 +962,17 @@ export default function App() {
                   setShowCreateFile(false);
                 }}
                 disabled={isLoading}
+                className="icon-btn"
               >
-                New Project
+                <span className="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path
+                      d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2H3V6zm0 6h18v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6zm9-3h2v3h3v2h-3v3h-2v-3H9v-2h3V9z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                <span>New Project</span>
               </button>
               {showCreateProject && (
                 <div className="popover-card">
@@ -897,8 +1014,17 @@ export default function App() {
                   setShowCreateProject(false);
                 }}
                 disabled={isLoading}
+                className="icon-btn"
               >
-                New File
+                <span className="icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path
+                      d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm8 1v4h4l-4-4zM8 11h8v2H8v-2zm0 4h8v2H8v-2z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                <span>New File</span>
               </button>
               {showCreateFile && (
                 <div className="popover-card">
@@ -937,7 +1063,17 @@ export default function App() {
                 </div>
               )}
             </div>
-            <button onClick={handleSave}>Save</button>
+            <button onClick={handleSave} className="icon-btn">
+              <span className="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path
+                    d="M5 3h11l3 3v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v14h14V7h-4V5H5zm3 5h8v2H8v-2zm0 4h6v2H8v-2z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </span>
+              <span>Save</span>
+            </button>
             <span className="save-pill" data-status={saveType}>{saveMessage}</span>
           </div>
         </div>
@@ -947,17 +1083,59 @@ export default function App() {
               setCommandQuery("");
               setShowCommandPalette(true);
             }}
+            className="icon-btn"
           >
-            Command
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M4 5h16v2H4V5zm0 6h16v2H4v-2zm0 6h10v2H4v-2z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
+            <span>Command</span>
           </button>
-          <button onClick={() => setShowSearchPanel((prev) => !prev)}>Search</button>
-          <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-            {theme === "dark" ? "Light" : "Dark"}
+          <button onClick={() => setShowSearchPanel((prev) => !prev)} className="icon-btn">
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M10 4a6 6 0 1 1 4.2 10.2l4.3 4.3-1.4 1.4-4.3-4.3A6 6 0 0 1 10 4zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
+            <span>Search</span>
           </button>
-          <button onClick={handleRun}>Run</button>
-          <button onClick={handleDeleteFile} disabled={isLoading}>Delete File</button>
-          <button onClick={handleDeleteProject} disabled={isLoading}>Delete Project</button>
-          <button onClick={handleLogout}>Logout</button>
+          <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="icon-btn">
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M12 3a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1zm6.364 2.636a1 1 0 0 1 1.414 1.414l-1.414 1.414a1 1 0 1 1-1.414-1.414l1.414-1.414zM21 11a1 1 0 1 1 0 2h-2a1 1 0 1 1 0-2h2zM6.636 4.636a1 1 0 0 1 0 1.414L5.222 7.464A1 1 0 1 1 3.808 6.05l1.414-1.414a1 1 0 0 1 1.414 0zM5 11a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2h2zm1.636 7.364a1 1 0 1 1-1.414 1.414l-1.414-1.414a1 1 0 1 1 1.414-1.414l1.414 1.414zM12 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1zm6.364 1.364a1 1 0 1 1-1.414-1.414l1.414-1.414a1 1 0 1 1 1.414 1.414l-1.414 1.414zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
+            <span>{theme === "dark" ? "Light" : "Dark"}</span>
+          </button>
+          <button onClick={handleRun} className="icon-btn">
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M8 5v14l11-7L8 5z" fill="currentColor" />
+              </svg>
+            </span>
+            <span>Run</span>
+          </button>
+          <button onClick={handleLogout} className="icon-btn">
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M10 4h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v-2h7V6h-7V4zm-1 4 1.414 1.414L8.828 11H15v2H8.828l1.586 1.586L9 16l-4-4 4-4z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
+            <span>Logout</span>
+          </button>
         </div>
       </header>
 
@@ -972,7 +1150,24 @@ export default function App() {
                   className={project === currentProject ? "active" : ""}
                   onClick={() => handleSelectProject(project)}
                 >
-                  {project}
+                  <span className="list-name">{project}</span>
+                  <button
+                    className="row-action"
+                    title="Delete project"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteProjectByName(project);
+                    }}
+                  >
+                    <span className="icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                        <path
+                          d="M9 3h6l1 2h4v2h-1l-1 12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7H4V5h4l1-2zm-2 4 1 11h8l1-11H7zm3 2h2v7h-2V9zm4 0h2v7h-2V9z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -1034,12 +1229,24 @@ export default function App() {
                   placeholder="Find"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleFindNext();
+                    }
+                  }}
                 />
                 <input
                   className="input"
                   placeholder="Replace"
                   value={replaceQuery}
                   onChange={(event) => setReplaceQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleReplaceNext();
+                    }
+                  }}
                 />
                 <button onClick={handleFindNext}>Find Next</button>
                 <button onClick={handleReplaceNext}>Replace</button>
@@ -1145,6 +1352,32 @@ export default function App() {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {confirmState.open && (
+        <div className="confirm-toast" role="alert">
+          <div className="confirm-message">{confirmState.message}</div>
+          <div className="confirm-actions">
+            <button
+              className="ghost"
+              onClick={() =>
+                setConfirmState({ open: false, message: "", confirmLabel: "Delete", onConfirm: null })
+              }
+            >
+              Cancel
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                const handler = confirmState.onConfirm;
+                setConfirmState((prev) => ({ ...prev, open: false }));
+                if (handler) handler();
+              }}
+            >
+              {confirmState.confirmLabel}
+            </button>
           </div>
         </div>
       )}

@@ -283,6 +283,24 @@ a {
   cursor: pointer;
 }
 
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn .icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 .top-actions-left button {
   background: linear-gradient(135deg, rgba(96, 165, 250, 0.25), rgba(34, 211, 238, 0.2));
   border-color: rgba(96, 165, 250, 0.5);
@@ -384,6 +402,11 @@ a {
   color: var(--text);
 }
 
+.tree-name {
+  flex: 1;
+  min-width: 0;
+}
+
 .tree-item.folder {
   font-weight: 500;
 }
@@ -411,9 +434,59 @@ a {
   border-radius: 10px;
   cursor: pointer;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 6px;
   align-items: center;
   font-size: 14px;
+}
+
+.list-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-action {
+  margin-left: auto;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  align-self: center;
+  flex: 0 0 auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.row-action .icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+}
+
+.row-action svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.list li:hover .row-action,
+.tree-item:hover .row-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.row-action:hover {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .list li.active {
@@ -439,7 +512,7 @@ a {
 
 .editor-area {
   display: grid;
-  grid-template-rows: auto auto 1fr 160px;
+  grid-template-rows: auto auto 1fr minmax(160px, 32%);
   background: var(--bg-2);
   min-height: 0;
   min-width: 0;
@@ -632,9 +705,10 @@ a {
   border-top: 1px solid var(--border);
   padding: 12px 16px;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   min-height: 0;
+  min-width: 0;
 }
 
 .output-panel .input {
@@ -649,6 +723,8 @@ a {
   font-family: "JetBrains Mono", monospace;
   font-size: 13px;
   white-space: pre-wrap;
+  overflow: auto;
+  min-height: 0;
 }
 
 .status-bar {
@@ -687,6 +763,53 @@ body[data-theme="light"] .command-overlay {
   padding: 12px;
   display: grid;
   gap: 10px;
+}
+
+.confirm-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 48px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  border-radius: 14px;
+  padding: 12px 14px;
+  min-width: 240px;
+  max-width: 360px;
+  display: grid;
+  gap: 10px;
+  z-index: 250;
+}
+
+.confirm-message {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-actions button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.confirm-actions .ghost {
+  background: transparent;
+}
+
+.confirm-actions .danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .command-list {
@@ -789,7 +912,7 @@ body[data-theme="light"] .command-overlay {
   }
 
   .editor-area {
-    grid-template-rows: auto auto 1fr 140px;
+    grid-template-rows: auto auto 1fr minmax(140px, 32%);
   }
 
   .search-row {
