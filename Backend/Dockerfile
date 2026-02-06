@@ -7,7 +7,7 @@ RUN ./mvnw -q -DskipTests dependency:go-offline
 COPY src src
 RUN ./mvnw -q -DskipTests package
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jdk
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
