@@ -35,6 +35,10 @@ Environment variables (optional):
 - `JWT_SECRET` (default: built-in dev secret)
 - `JWT_EXPIRATION_MS` (default: `3600000`)
 
+Production profile (Render/Postgres):
+- Set `SPRING_PROFILES_ACTIVE=prod`
+- Uses PostgreSQL via `application-prod.properties`
+
 ### Frontend
 ```
 cd frontend
