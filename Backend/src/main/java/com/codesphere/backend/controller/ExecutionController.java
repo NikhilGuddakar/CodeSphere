@@ -162,9 +162,12 @@ public class ExecutionController {
                 .redirectErrorStream(true)
                 .start();
 
-        compile.waitFor(5, TimeUnit.SECONDS);
+        boolean compiled = compile.waitFor(5, TimeUnit.SECONDS);
+        if (!compiled) {
+            compile.destroyForcibly();
+            return new ExecutionResult(null, "Compilation timed out", "TIMEOUT");
+        }
         String compileOutput = new String(compile.getInputStream().readAllBytes());
-
         if (compile.exitValue() != 0) {
             return new ExecutionResult(null, compileOutput, "ERROR");
         }
